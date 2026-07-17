@@ -1,0 +1,31 @@
+# ===== Wireshark 智能分析后端 依赖清单 =====
+
+# ---- 网络抓包/解析（PyShark 基于 Tshark）----
+# 使用项目内附带的 pyshark-master 源码进行本地安装（见 run.bat / 安装说明）
+lxml
+termcolor
+packaging
+appdirs
+
+# ---- LangChain Agent 框架 ----
+langchain>=0.2.0
+langchain-core>=0.2.0
+langchain-community>=0.2.0
+
+# ---- LLM 提供商：智谱 GLM ----
+zhipuai>=2.1.0
+
+# ---- Web 后端 ----
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+python-multipart>=0.0.9
+
+# ---- 系统监控（网卡实时流量）----
+psutil>=5.9.0
+
+# ---- 报告导出 ----
+markdown>=3.5.0
+
+# ---- 通用工具 ----
+python-dotenv>=1.0.0
+pydantic>=2.0.0

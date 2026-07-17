@@ -1,0 +1,26 @@
+# ===== Wireshark 语义化网络分析助手 依赖清单 =====
+
+# ---- 网络抓包/解析（PyShark 基于 Tshark）----
+# 使用项目内附带的 pyshark-master 源码进行本地安装（见 run.bat / 安装说明），
+# 以避免 PyPI 上 pyshark 版本滞后带来的兼容问题。
+# 若直接使用 PyPI 版本，可改为： pyshark
+lxml
+termcolor
+packaging
+appdirs
+
+# ---- LangChain Agent 框架 ----
+langchain>=0.2.0
+langchain-core>=0.2.0
+langchain-community>=0.2.0
+
+# ---- LLM 提供商：智谱 GLM ----
+# LangChain 社区集成通过 ChatZhipuAI 调用 GLM-4 / GLM-4-Plus
+zhipuai>=2.1.0
+
+# ---- Web UI ----
+streamlit>=1.35.0
+
+# ---- 通用工具 ----
+python-dotenv>=1.0.0
+pydantic>=2.0.0

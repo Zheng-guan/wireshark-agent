@@ -1,0 +1,46 @@
+# ===== Wireshark 智能助手 .gitignore =====
+
+# 敏感配置（含 API Key，切勿提交）
+.env
+.env.*
+!.env.example
+wireshark_llm_agent/.env
+backend/.env
+
+# 抓包产生的临时文件
+wireshark_llm_agent/data/captures/*.pcap
+wireshark_llm_agent/data/captures/*.pcapng
+backend/data/captures/*.pcap
+backend/data/captures/*.pcapng
+backend/data/captures/*.cap
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+.pytest_cache/
+
+# 虚拟环境
+venv/
+.venv/
+env/
+
+# Node / 前端
+node_modules/
+frontend/node_modules/
+# 注意：frontend/dist 默认忽略；如需单进程部署可取消注释下一行的取反
+frontend/dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Streamlit
+.streamlit/
+
+# OS
+.DS_Store
+Thumbs.db
