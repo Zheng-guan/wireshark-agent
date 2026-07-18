@@ -142,3 +142,95 @@ def chat(user_input: str, pcap_file: str = "", current_filter: str = "") -> str:
     except Exception as e:
         logger.exception("聊天失败")
         return f"对话失败：{e}"
+
+
+# ---------------------------------------------------------------------
+# 协议字段解释（Explain This Field）
+# ---------------------------------------------------------------------
+_FIELD_PROMPT = """你是一名网络协议专家，正在帮助用户理解 Wireshark 协议树中的一个字段。
+
+请用中文简洁解释（150 字以内，可用简短 markdown）：
+1. 这个字段在该协议中的含义/作用。
+2. 当前这个值说明什么（是否正常、典型取值范围、是否值得关注）。
+
+所属协议层：{layer}
+字段路径：{field_path}
+字段显示名：{field_name}
+当前值：{field_value}
+
+只输出解释正文，不要输出标题或客套话。"""
+
+
+def explain_field(layer: str, field_path: str, field_name: str, field_value: str) -> str:
+    """AI 解释协议树中的单个字段。"""
+    llm = _build_llm()
+    prompt = _FIELD_PROMPT.format(
+        layer=layer or "(未知)",
+        field_path=field_path or field_name,
+        field_name=field_name,
+        field_value=(field_value or "(空)")[:500],
+    )
+    try:
+        resp = llm.invoke([HumanMessage(content=prompt)])
+        return resp.content or "（LLM 未返回解释）"
+    except Exception as e:
+        logger.exception("字段解释失败")
+        return f"解释失败：{e}"
+
+
+# ---------------------------------------------------------------------
+# 流级 AI 诊断（Analyze TCP/UDP Stream）
+# ---------------------------------------------------------------------
+_STREAM_PROMPT = """你是一名资深网络安全分析工程师。下面是从抓包文件中提取的一条完整 {proto} 流
+的双向通信内容（ASCII 形式，不可打印字符以 . 代替）。
+
+通信节点：{nodes}
+共 {seg_count} 个数据段。
+
+流内容（可能已截断）：
+------
+{stream_text}
+------
+
+请用中文输出一份会话级诊断报告（markdown 格式），包括：
+1. **会话概要**：这是什么协议的会话？双方在做什么（如 HTTP 下载、API 调用、登录等）？
+2. **是否正常**：通信是否成功完成？有无错误码、重试、异常中断、握手问题？
+3. **安全观察**：是否存在可疑特征（明文凭证、注入尝试、异常 User-Agent、敏感信息泄露等）？
+4. **结论建议**：一句话结论 + 是否值得深入排查。
+
+若内容为空或无法识别，请如实说明。"""
+
+
+def analyze_stream(proto: str, nodes: list[str], segments: list[dict]) -> str:
+    """对完整 TCP/UDP 流进行 AI 会话级诊断。"""
+    if not segments:
+        return "该流没有可分析的数据内容。"
+    llm = _build_llm()
+
+    # 拼接流文本（标注方向），并截断防超长
+    parts: list[str] = []
+    node0 = nodes[0] if len(nodes) > 0 else "Node0"
+    node1 = nodes[1] if len(nodes) > 1 else "Node1"
+    total = 0
+    for seg in segments:
+        src, dst = (node0, node1) if seg["direction"] == 0 else (node1, node0)
+        chunk = f"[{src} -> {dst}]\n{seg['data']}\n"
+        if total + len(chunk) > 8000:
+            parts.append("\n...(后续内容已截断)\n")
+            break
+        parts.append(chunk)
+        total += len(chunk)
+    stream_text = "\n".join(parts)
+
+    prompt = _STREAM_PROMPT.format(
+        proto=proto.upper(),
+        nodes=" ↔ ".join(nodes) if nodes else "(未知)",
+        seg_count=len(segments),
+        stream_text=stream_text,
+    )
+    try:
+        resp = llm.invoke([HumanMessage(content=prompt)])
+        return resp.content or "（LLM 未返回诊断）"
+    except Exception as e:
+        logger.exception("流诊断失败")
+        return f"诊断失败：{e}"

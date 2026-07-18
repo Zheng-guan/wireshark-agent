@@ -14,11 +14,12 @@ import shutil
 import time
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File, Query
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from config.settings import CAPTURES_DIR
-from core import capture_service, nic_monitor
+from core import capture_service, nic_monitor, stream_service
 from core.pyshark_analyzer import (
     PysharkAnalyzerError,
     list_interfaces,
@@ -121,3 +122,42 @@ async def upload_file(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"保存失败: {e}")
     clear_cache()
     return {"file": str(dest), "filename": dest.name}
+
+
+@router.get("/files/download")
+def download_file(
+    file: str = Query(..., description="pcap 文件路径"),
+    filter: str = Query("", description="可选：按显示过滤器导出匹配包"),
+):
+    """下载 pcap 文件；带 filter 时用 tshark 导出过滤后的子集。"""
+    src = Path(file)
+    if not src.is_file():
+        raise HTTPException(status_code=404, detail=f"文件不存在: {file}")
+
+    if not filter:
+        return FileResponse(
+            path=str(src),
+            filename=src.name,
+            media_type="application/vnd.tcpdump.pcap",
+        )
+
+    # 过滤导出：写到临时文件再返回
+    import tempfile
+    try:
+        with tempfile.NamedTemporaryFile(
+            suffix=".pcapng", delete=False, dir=str(CAPTURES_DIR),
+        ) as tmp:
+            tmp_path = tmp.name
+        stream_service.export_filtered_pcap(str(src), filter, tmp_path)
+        stem = src.stem
+        return FileResponse(
+            path=tmp_path,
+            filename=f"{stem}_filtered.pcapng",
+            media_type="application/vnd.tcpdump.pcap",
+            background=None,  # 临时文件保留在 captures 目录，便于复用/排查
+        )
+    except PysharkAnalyzerError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("过滤导出失败")
+        raise HTTPException(status_code=500, detail=f"导出失败: {e}")

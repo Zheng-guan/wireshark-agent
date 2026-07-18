@@ -33,10 +33,10 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------
-# 行列表缓存（file+filter -> rows），按文件 mtime 失效
+# 行列表缓存（file+filter+time_format -> rows），按文件 mtime 失效
 # ---------------------------------------------------------------------
 class _RowsCache:
-    """线程安全的简单缓存：key=(file, filter)，value=(mtime, rows)。"""
+    """线程安全的简单缓存：key=(file, filter, time_format)，value=(mtime, rows)。"""
 
     def __init__(self, max_entries: int = 8):
         self._data: dict[tuple, tuple[float, list[dict]]] = {}
@@ -132,7 +132,31 @@ def packet_to_tree(packet) -> list[dict]:
 # ---------------------------------------------------------------------
 # 列表行构建
 # ---------------------------------------------------------------------
-def _packet_to_row(packet) -> dict:
+# 时间显示格式（对应 Wireshark 的 Time Display Format）
+TIME_FORMATS = ("relative", "absolute", "delta")
+
+
+def _format_time(sniff_time, epoch: float, prev_epoch: float | None, fmt: str) -> str:
+    """按指定格式渲染时间列。
+
+    - relative: 自首个包起的相对秒数（Wireshark 默认）
+    - absolute: 绝对时间 HH:MM:SS.mmm
+    - delta:    距上一个匹配包的间隔秒数
+    """
+    if fmt == "absolute":
+        try:
+            return sniff_time.strftime("%H:%M:%S.%f")[:-3] if sniff_time else ""
+        except Exception:
+            return str(sniff_time or "")
+    if fmt == "delta":
+        if prev_epoch is None:
+            return "0.000000"
+        return f"{epoch - prev_epoch:.6f}"
+    # relative（默认）
+    return f"{epoch:.6f}"
+
+
+def _packet_to_row(packet, prev_epoch: float | None = None, time_format: str = "relative") -> dict:
     row: dict[str, Any] = {
         "number": getattr(packet, "number", None),
         "time": "",
@@ -143,10 +167,13 @@ def _packet_to_row(packet) -> dict:
         "info": "",
     }
     try:
-        st = getattr(packet, "sniff_time", None)
-        row["time"] = st.strftime("%H:%M:%S.%f")[:-3] if st else ""
+        epoch = float(getattr(packet, "sniff_timestamp", 0) or 0)
     except Exception:
-        row["time"] = str(getattr(packet, "sniff_time", ""))
+        epoch = 0.0
+    row["time"] = _format_time(
+        getattr(packet, "sniff_time", None), epoch, prev_epoch, time_format,
+    )
+    row["_epoch"] = epoch  # 供 delta 计算，返回前剔除
 
     for lname in ("ip", "ipv6"):
         layer = getattr(packet, lname, None)
@@ -202,15 +229,21 @@ def _build_info(packet) -> str:
 # ---------------------------------------------------------------------
 # 全量行构建（带缓存）
 # ---------------------------------------------------------------------
-def _build_all_rows(pcap_path: str, display_filter: str | None) -> list[dict]:
+def _build_all_rows(
+    pcap_path: str,
+    display_filter: str | None,
+    time_format: str = "relative",
+) -> list[dict]:
     """扫描整个 pcap，构建匹配过滤条件的全部行（带缓存）。"""
     _ensure_event_loop()
+    if time_format not in TIME_FORMATS:
+        time_format = "relative"
     pcap_file = Path(pcap_path)
     if not pcap_file.is_file():
         raise PysharkAnalyzerError(f"pcap 文件不存在: {pcap_path}")
 
     mtime = pcap_file.stat().st_mtime
-    key = (str(pcap_file.resolve()), display_filter or "")
+    key = (str(pcap_file.resolve()), display_filter or "", time_format)
     cached = _ROWS_CACHE.get(key, mtime)
     if cached is not None:
         logger.info("命中行缓存: %s (filter=%s, %d 行)", pcap_file.name, display_filter, len(cached))
@@ -224,9 +257,18 @@ def _build_all_rows(pcap_path: str, display_filter: str | None) -> list[dict]:
             keep_packets=False,
             **_tshark_kwargs(),
         )
+        first_epoch: float | None = None
+        prev_epoch: float | None = None
         for packet in cap:
             try:
-                rows.append(_packet_to_row(packet))
+                row = _packet_to_row(packet, prev_epoch, time_format)
+                epoch = row.pop("_epoch", 0.0)
+                if first_epoch is None:
+                    first_epoch = epoch
+                if time_format == "relative":
+                    row["time"] = f"{epoch - first_epoch:.6f}"
+                prev_epoch = epoch
+                rows.append(row)
             except Exception as e:
                 logger.debug("构建行失败: %s", e)
         _safe_close(cap)
@@ -244,9 +286,10 @@ def get_packets_page(
     display_filter: str | None = None,
     offset: int = 0,
     limit: int = 100,
+    time_format: str = "relative",
 ) -> dict:
     """分页读取数据包列表（基于缓存的全量行切片）。"""
-    rows = _build_all_rows(pcap_path, display_filter)
+    rows = _build_all_rows(pcap_path, display_filter, time_format)
     total = len(rows)
     page_rows = rows[offset:offset + limit]
     return {
@@ -294,6 +337,7 @@ def get_packet_detail(pcap_path: str, packet_number: int) -> dict:
             if str(getattr(packet, "number", "")) == str(packet_number):
                 tree = packet_to_tree(packet)
                 row = _packet_to_row(packet)
+                row.pop("_epoch", None)
                 raw = str(packet)
                 _safe_close(cap)
                 hex_dump = get_packet_hex(pcap_path, packet_number)

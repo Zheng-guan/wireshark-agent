@@ -7,6 +7,7 @@ import ChatPanel from './components/ChatPanel.jsx'
 import Splitter from './components/Splitter.jsx'
 import SummaryPanel from './components/SummaryPanel.jsx'
 import StatsModal from './components/StatsModal.jsx'
+import StreamModal from './components/StreamModal.jsx'
 
 export default function App() {
   const [pcapFile, setPcapFile] = useState('')
@@ -23,10 +24,15 @@ export default function App() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [checked, setChecked] = useState(new Set())
 
+  // 时间列显示格式：relative | absolute | delta
+  const [timeFormat, setTimeFormat] = useState('relative')
+
   // AI 总结独立面板
   const [summary, setSummary] = useState(null)
   // 统计弹窗
   const [showStats, setShowStats] = useState(false)
+  // 追踪流弹窗：{packetNumber} | null
+  const [streamTarget, setStreamTarget] = useState(null)
 
   // 可调整布局：右栏宽度、详情栏高度比例
   const [rightWidth, setRightWidth] = useState(380)
@@ -34,13 +40,13 @@ export default function App() {
   const mainRef = useRef(null)
   const leftRef = useRef(null)
 
-  const loadPackets = useCallback(async (file, filt, pg) => {
+  const loadPackets = useCallback(async (file, filt, pg, tf = timeFormat) => {
     if (!file) return
     setLoading(true)
     setError('')
     try {
       const [listData, countData] = await Promise.all([
-        api.listPackets({ file, filter: filt, offset: pg * pageSize, limit: pageSize }),
+        api.listPackets({ file, filter: filt, offset: pg * pageSize, limit: pageSize, timeFormat: tf }),
         api.countPackets({ file, filter: filt }),
       ])
       setPackets(listData.packets)
@@ -52,7 +58,7 @@ export default function App() {
     } finally {
       setLoading(false)
     }
-  }, [pageSize])
+  }, [pageSize, timeFormat])
 
   const handleOpenFile = useCallback((file) => {
     setPcapFile(file)
@@ -61,6 +67,7 @@ export default function App() {
     setDetail(null)
     setChecked(new Set())
     setSummary(null)
+    setStreamTarget(null)
     loadPackets(file, appliedFilter, 0)
   }, [appliedFilter, loadPackets])
 
@@ -101,6 +108,23 @@ export default function App() {
     loadPackets(pcapFile, expr, 0)
   }, [pcapFile, loadPackets])
 
+  // 右键菜单「作为过滤器应用」：与现有过滤器以 and 叠加（更接近 Wireshark 行为）
+  const handleAppendFilter = useCallback((expr) => {
+    const merged = appliedFilter ? `${appliedFilter} and ${expr}` : expr
+    handleAiFilter(merged)
+  }, [appliedFilter, handleAiFilter])
+
+  // 右键菜单「追踪流」
+  const handleFollowStream = useCallback((pkt, _proto) => {
+    setStreamTarget({ packetNumber: pkt.number })
+  }, [])
+
+  // 时间格式切换
+  const handleTimeFormatChange = useCallback((tf) => {
+    setTimeFormat(tf)
+    if (pcapFile) loadPackets(pcapFile, appliedFilter, page, tf)
+  }, [pcapFile, appliedFilter, page, loadPackets])
+
   const handleCheck = useCallback((number, isChecked) => {
     setChecked((prev) => {
       const next = new Set(prev)
@@ -138,6 +162,9 @@ export default function App() {
         onApplyFilter={handleApplyFilter}
         loading={loading}
         onShowStats={() => setShowStats(true)}
+        timeFormat={timeFormat}
+        onTimeFormatChange={handleTimeFormatChange}
+        appliedFilter={appliedFilter}
       />
 
       <div className="main" ref={mainRef}>
@@ -156,11 +183,18 @@ export default function App() {
               total={total}
               onPageChange={handlePageChange}
               pcapFile={pcapFile}
+              onApplyFilterExpr={handleAppendFilter}
+              onFollowStream={handleFollowStream}
             />
           </div>
           <Splitter direction="column" onDrag={handleVerticalDrag} />
           <div className="detail-pane" style={{ height: `${(1 - tableRatio) * 100}%` }}>
-            <PacketDetail detail={detail} loading={detailLoading} selected={selected} />
+            <PacketDetail
+              detail={detail}
+              loading={detailLoading}
+              selected={selected}
+              onApplyFilterExpr={handleAppendFilter}
+            />
           </div>
         </div>
 
@@ -192,6 +226,14 @@ export default function App() {
           pcapFile={pcapFile}
           filter={appliedFilter}
           onClose={() => setShowStats(false)}
+        />
+      )}
+
+      {streamTarget && (
+        <StreamModal
+          pcapFile={pcapFile}
+          packetNumber={streamTarget.packetNumber}
+          onClose={() => setStreamTarget(null)}
         />
       )}
     </div>

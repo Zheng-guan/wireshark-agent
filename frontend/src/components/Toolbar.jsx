@@ -22,8 +22,11 @@ function formatBps(bps) {
   return `${Math.round(bps)} B/s`
 }
 
-// 顶部工具栏：文件管理 + 抓包 + 过滤器
-export default function Toolbar({ pcapFile, onOpenFile, filter, onFilterChange, onApplyFilter, loading, onShowStats }) {
+// 顶部工具栏：文件管理 + 抓包 + 过滤器 + 下载 + 时间格式
+export default function Toolbar({
+  pcapFile, onOpenFile, filter, onFilterChange, onApplyFilter, loading, onShowStats,
+  timeFormat, onTimeFormatChange, appliedFilter,
+}) {
   const [files, setFiles] = useState([])
   const [showFiles, setShowFiles] = useState(false)
   const [showCapture, setShowCapture] = useState(false)
@@ -34,8 +37,24 @@ export default function Toolbar({ pcapFile, onOpenFile, filter, onFilterChange, 
   const [captureMsg, setCaptureMsg] = useState('')
   const fileInputRef = useRef(null)
   const pollRef = useRef(null)
+  const filterInputRef = useRef(null)
 
   const [capForm, setCapForm] = useState({ interface: '', duration: 10, bpf_filter: '' })
+
+  // 快捷键：按 / 聚焦过滤器输入框
+  useEffect(() => {
+    const onKey = (e) => {
+      const tag = document.activeElement?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      if (e.key === '/') {
+        e.preventDefault()
+        filterInputRef.current?.focus()
+        filterInputRef.current?.select()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   const refreshFiles = async () => {
     try {
@@ -167,11 +186,32 @@ export default function Toolbar({ pcapFile, onOpenFile, filter, onFilterChange, 
         <button className="btn" onClick={onShowStats} disabled={!pcapFile} title="查看协议分布图">
           📊 统计
         </button>
+        <button
+          className="btn"
+          onClick={() => api.downloadPcap({ file: pcapFile, filter: appliedFilter || '' })}
+          disabled={!pcapFile}
+          title={appliedFilter ? `下载过滤后的包（${appliedFilter}）` : '下载当前 pcap 文件'}
+        >
+          ⬇ 下载{appliedFilter ? '（已过滤）' : ''}
+        </button>
+
+        <select
+          className="time-format-select"
+          value={timeFormat}
+          onChange={(e) => onTimeFormatChange(e.target.value)}
+          title="时间列显示格式"
+          disabled={!pcapFile}
+        >
+          <option value="relative">⏱ 相对时间</option>
+          <option value="absolute">🕐 绝对时间</option>
+          <option value="delta">Δ 间隔时间</option>
+        </select>
 
         <div className="filter-box">
           <input
+            ref={filterInputRef}
             className="filter-input"
-            placeholder="显示过滤器，如 http.response.code >= 400（回车应用）"
+            placeholder="显示过滤器，如 http.response.code >= 400（回车应用，按 / 聚焦）"
             value={filter}
             onChange={(e) => onFilterChange(e.target.value)}
             onKeyDown={onFilterKeyDown}

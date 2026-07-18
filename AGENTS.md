@@ -43,12 +43,13 @@
 backend/                        # FastAPI 后端
 ├── main.py                     # 应用入口（CORS、路由、/api/health、前端静态托管）
 ├── api/
-│   ├── packets.py              # /api/packets/* 列表/计数/详情/统计/协议分布
-│   ├── chat.py                 # /api/chat/* 语义过滤/AI 总结/报告导出
-│   └── capture.py              # /api/capture/* 网卡(含流量)/异步抓包 + /api/files/*
+│   ├── packets.py              # /api/packets/* 列表/计数/详情/统计/协议分布/追踪流(stream)
+│   ├── chat.py                 # /api/chat/* 语义过滤/AI 总结/报告导出/字段解释/流诊断
+│   └── capture.py              # /api/capture/* 网卡(含流量)/异步抓包 + /api/files/*(含下载)
 ├── core/
-│   ├── packet_service.py       # 分页列表(带缓存) + 协议树 + Hex 转储
-│   ├── llm_service.py          # NL→过滤表达式 + 选中包总结 + 对话
+│   ├── packet_service.py       # 分页列表(带缓存) + 协议树 + Hex 转储 + 时间格式(relative/absolute/delta)
+│   ├── stream_service.py       # 追踪 TCP/UDP 流（tshark -z follow）+ 过滤导出 pcap
+│   ├── llm_service.py          # NL→过滤表达式 + 选中包总结 + 对话 + 字段解释 + 流诊断
 │   ├── nic_monitor.py          # 网卡实时流量（psutil）
 │   ├── capture_service.py      # 异步抓包任务 + 进度跟踪
 │   ├── report_service.py       # HTML 报告导出
@@ -61,12 +62,14 @@ backend/                        # FastAPI 后端
 └── .env                        # 真实配置（含 API Key，.gitignore 排除）
 
 frontend/                       # React + Vite 前端
-├── src/App.jsx                 # 整体布局 + 可拖拽状态 + 总结/统计面板
+├── src/App.jsx                 # 整体布局 + 可拖拽状态 + 总结/统计/追踪流面板
 ├── src/api.js                  # API 客户端封装
 ├── src/components/
-│   ├── Toolbar.jsx             # 工具栏：文件/上传/抓包(流量图+进度)/过滤器/统计
-│   ├── PacketTable.jsx         # 数据包表格（分页/选中/多选/协议着色）
-│   ├── PacketDetail.jsx        # 协议树 + Hex + 原始详情 Tab
+│   ├── Toolbar.jsx             # 工具栏：文件/上传/抓包/下载/时间格式/过滤器(/ 聚焦)/统计
+│   ├── PacketTable.jsx         # 数据包表格（分页/右键菜单/↑↓ 导航/列宽拖拽/协议着色）
+│   ├── PacketDetail.jsx        # 协议树(右键过滤+AI 字段解释) + Hex + 原始详情 Tab
+│   ├── ContextMenu.jsx         # 通用右键上下文菜单（useContextMenu hook）
+│   ├── StreamModal.jsx         # 追踪流弹窗（双向分色 + AI 会话诊断）
 │   ├── ChatPanel.jsx           # AI 控制台（语义过滤/对话）
 │   ├── SummaryPanel.jsx        # AI 总结独立面板（Markdown + 导出）
 │   ├── StatsModal.jsx          # 协议分布图表弹窗

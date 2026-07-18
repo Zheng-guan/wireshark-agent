@@ -11,7 +11,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Query
 
-from core import packet_service
+from core import packet_service, stream_service
 from core.pyshark_analyzer import (
     PysharkAnalyzerError,
     get_tshark_stats,
@@ -28,6 +28,7 @@ def list_packets(
     filter: str = Query("", description="Wireshark 显示过滤器"),
     offset: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
+    time_format: str = Query("relative", description="时间格式: relative|absolute|delta"),
 ):
     """分页获取数据包列表（Wireshark 主窗口表格）。"""
     try:
@@ -36,6 +37,7 @@ def list_packets(
             display_filter=filter or None,
             offset=offset,
             limit=limit,
+            time_format=time_format,
         )
     except PysharkAnalyzerError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -110,4 +112,38 @@ def protocol_distribution(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception("protocol_distribution 失败")
+        raise HTTPException(status_code=500, detail=f"服务器错误: {e}")
+
+
+# ---------------------------------------------------------------------
+# 追踪流（Follow TCP/UDP Stream）
+# ---------------------------------------------------------------------
+@router.get("/stream/info")
+def stream_info(
+    file: str = Query(...),
+    number: int = Query(..., ge=1),
+):
+    """定位指定数据包所属的 TCP/UDP 流（返回协议与流索引）。"""
+    try:
+        return stream_service.get_stream_info(file, number)
+    except PysharkAnalyzerError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("stream_info 失败")
+        raise HTTPException(status_code=500, detail=f"服务器错误: {e}")
+
+
+@router.get("/stream")
+def follow_stream(
+    file: str = Query(...),
+    proto: str = Query("tcp", description="tcp 或 udp"),
+    index: int = Query(..., ge=0, description="流索引"),
+):
+    """提取完整流内容（分段列表，含方向，供客户端/服务端着色）。"""
+    try:
+        return stream_service.follow_stream(file, proto, index)
+    except PysharkAnalyzerError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("follow_stream 失败")
         raise HTTPException(status_code=500, detail=f"服务器错误: {e}")

@@ -42,9 +42,9 @@ export const api = {
 
   captureStatus: (taskId) => request(`/capture/status/${taskId}`),
 
-  listPackets: ({ file, filter = '', offset = 0, limit = 100 }) =>
+  listPackets: ({ file, filter = '', offset = 0, limit = 100, timeFormat = 'relative' }) =>
     request(
-      `/packets/list?file=${encodeURIComponent(file)}&filter=${encodeURIComponent(filter)}&offset=${offset}&limit=${limit}`,
+      `/packets/list?file=${encodeURIComponent(file)}&filter=${encodeURIComponent(filter)}&offset=${offset}&limit=${limit}&time_format=${timeFormat}`,
     ),
 
   countPackets: ({ file, filter = '' }) =>
@@ -72,4 +72,29 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     }).then((r) => r.text()),
+
+  // ---- 追踪流（Follow TCP/UDP Stream）----
+  streamInfo: ({ file, number }) =>
+    request(`/packets/stream/info?file=${encodeURIComponent(file)}&number=${number}`),
+
+  followStream: ({ file, proto, index }) =>
+    request(`/packets/stream?file=${encodeURIComponent(file)}&proto=${proto}&index=${index}`),
+
+  analyzeStream: (payload) =>
+    request('/chat/analyze-stream', { method: 'POST', body: JSON.stringify(payload) }),
+
+  // ---- AI 字段解释 ----
+  explainField: (payload) =>
+    request('/chat/explain-field', { method: 'POST', body: JSON.stringify(payload) }),
+
+  // ---- PCAP 下载（直接触发浏览器下载）----
+  downloadPcap: ({ file, filter = '' }) => {
+    const url = `${BASE}/files/download?file=${encodeURIComponent(file)}&filter=${encodeURIComponent(filter)}`
+    const a = document.createElement('a')
+    a.href = url
+    a.download = ''
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+  },
 }

@@ -94,3 +94,48 @@ def export_report(req: ReportRequest):
     except Exception as e:
         logger.exception("export_report 失败")
         raise HTTPException(status_code=500, detail=f"导出失败: {e}")
+
+
+# ---------------------------------------------------------------------
+# AI 字段解释 / 流诊断
+# ---------------------------------------------------------------------
+class ExplainFieldRequest(BaseModel):
+    layer: str = ""
+    field_path: str = ""
+    field_name: str
+    field_value: str = ""
+
+
+@router.post("/explain-field")
+def explain_field(req: ExplainFieldRequest):
+    """AI 解释协议树中的单个字段（Explain This Field）。"""
+    try:
+        text = llm_service.explain_field(
+            layer=req.layer,
+            field_path=req.field_path,
+            field_name=req.field_name,
+            field_value=req.field_value,
+        )
+        return {"explanation": text}
+    except Exception as e:
+        logger.exception("explain_field 失败")
+        raise HTTPException(status_code=500, detail=f"解释失败: {e}")
+
+
+class AnalyzeStreamRequest(BaseModel):
+    proto: str = "tcp"
+    nodes: list[str] = []
+    segments: list[dict[str, Any]]
+
+
+@router.post("/analyze-stream")
+def analyze_stream(req: AnalyzeStreamRequest):
+    """对完整 TCP/UDP 流进行 AI 会话级诊断。"""
+    try:
+        text = llm_service.analyze_stream(
+            proto=req.proto, nodes=req.nodes, segments=req.segments,
+        )
+        return {"analysis": text}
+    except Exception as e:
+        logger.exception("analyze_stream 失败")
+        raise HTTPException(status_code=500, detail=f"诊断失败: {e}")
