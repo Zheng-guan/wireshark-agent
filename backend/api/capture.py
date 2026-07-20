@@ -161,3 +161,31 @@ def download_file(
     except Exception as e:
         logger.exception("过滤导出失败")
         raise HTTPException(status_code=500, detail=f"导出失败: {e}")
+
+
+# ---------------------------------------------------------------------
+# 导出对象（HTTP 等协议传输的文件提取）
+# ---------------------------------------------------------------------
+@router.get("/files/export-objects")
+def export_objects(
+    file: str = Query(..., description="pcap 文件路径"),
+    proto: str = Query("http", description="协议：http / smb / imf 等"),
+):
+    """列出 pcap 中可提取的协议对象（HTTP 下载的文件等）。"""
+    try:
+        return stream_service.list_exported_objects(file, proto)
+    except PysharkAnalyzerError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("导出对象列表失败")
+        raise HTTPException(status_code=500, detail=f"服务器错误: {e}")
+
+
+@router.get("/files/export-objects/{session_id}/{filename}")
+def download_exported_object(session_id: str, filename: str):
+    """下载单个导出对象。"""
+    try:
+        p = stream_service.get_exported_object_path(session_id, filename)
+        return FileResponse(path=str(p), filename=filename)
+    except PysharkAnalyzerError as e:
+        raise HTTPException(status_code=404, detail=str(e))

@@ -97,4 +97,22 @@ export const api = {
     a.click()
     a.remove()
   },
+
+  // ---- 过滤器语法校验 ----
+  validateFilter: (filter) =>
+    request(`/packets/validate-filter?filter=${encodeURIComponent(filter)}`),
+
+  // ---- 导出对象 ----
+  exportObjects: ({ file, proto = 'http' }) =>
+    request(`/files/export-objects?file=${encodeURIComponent(file)}&proto=${proto}`),
+
+  downloadExportedObject: ({ session, filename }) => {
+    const url = `${BASE}/files/export-objects/${encodeURIComponent(session)}/${encodeURIComponent(filename)}`
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+  },
 }

@@ -215,3 +215,74 @@ def export_filtered_pcap(
     if not out.is_file() or out.stat().st_size == 0:
         raise PysharkAnalyzerError("导出失败：输出文件为空（可能过滤器无匹配）")
     return str(out)
+
+
+# ---------------------------------------------------------------------
+# 导出对象（HTTP 文件提取）
+# ---------------------------------------------------------------------
+import shutil
+import tempfile
+import uuid
+
+# 导出对象的临时目录（captures 目录下的子目录，便于清理）
+_EXPORT_DIR_NAME = "_exported_objects"
+
+
+def list_exported_objects(pcap_path: str, proto: str = "http") -> dict:
+    """用 tshark --export-objects 提取协议传输的文件对象。
+
+    tshark 会先把对象导出到目录，我们再扫描目录并读取元数据。
+    :return: {"objects": [{id, filename, size, content_type}], "count": N}
+    """
+    pcap_file = Path(pcap_path)
+    if not pcap_file.is_file():
+        raise PysharkAnalyzerError(f"pcap 文件不存在: {pcap_path}")
+
+    from config.settings import CAPTURES_DIR
+    export_root = CAPTURES_DIR / _EXPORT_DIR_NAME
+    export_root.mkdir(exist_ok=True)
+
+    # 每次导出生成唯一子目录，避免并发/残留冲突
+    session_id = uuid.uuid4().hex[:10]
+    dest_dir = export_root / session_id
+    dest_dir.mkdir()
+
+    try:
+        _run_tshark([
+            "-r", str(pcap_file),
+            "-q", "--export-objects", f"{proto},{dest_dir}",
+        ], timeout=180)
+    except PysharkAnalyzerError:
+        # 无对象时 tshark 也可能返回非 0，不直接抛错，按空处理
+        pass
+
+    objects: list[dict] = []
+    for f in sorted(dest_dir.iterdir(), key=lambda x: x.stat().st_mtime):
+        if f.is_file():
+            objects.append({
+                "id": f"{session_id}/{f.name}",
+                "filename": f.name,
+                "size": f.stat().st_size,
+                "size_kb": round(f.stat().st_size / 1024, 2),
+            })
+
+    return {
+        "proto": proto,
+        "objects": objects,
+        "count": len(objects),
+        "session": session_id,
+    }
+
+
+def get_exported_object_path(session_id: str, filename: str) -> Path:
+    """获取导出对象的绝对路径（含安全校验，防目录穿越）。"""
+    from config.settings import CAPTURES_DIR
+    # 只允许字母数字/下划线/连字符/点，拒绝 .. 和路径分隔符
+    if not re.match(r"^[A-Za-z0-9_\-]+$", session_id):
+        raise PysharkAnalyzerError("非法的会话 ID")
+    if ".." in filename or "/" in filename or "\\" in filename:
+        raise PysharkAnalyzerError("非法的文件名")
+    p = CAPTURES_DIR / _EXPORT_DIR_NAME / session_id / filename
+    if not p.is_file():
+        raise PysharkAnalyzerError(f"对象不存在: {filename}")
+    return p

@@ -147,3 +147,55 @@ def follow_stream(
     except Exception as e:
         logger.exception("follow_stream 失败")
         raise HTTPException(status_code=500, detail=f"服务器错误: {e}")
+
+
+# ---------------------------------------------------------------------
+# 过滤器语法校验
+# ---------------------------------------------------------------------
+@router.get("/validate-filter")
+def validate_filter(
+    filter: str = Query("", description="Wireshark 显示过滤器"),
+):
+    """校验显示过滤器语法是否合法。
+
+    原理：tshark 解析过滤器失败时返回码为 4 且 stderr 含语法错误信息；
+    合法则返回码为 0。用 captures 目录下任意一个真实文件作为输入
+    （-c 1 只读 1 个包，开销极小）；若无文件则跳过实际校验。
+    """
+    expr = filter.strip()
+    if not expr:
+        return {"valid": True, "message": ""}
+    import subprocess, os
+    from config.settings import TSHARK_PATH, CAPTURES_DIR
+    tshark = TSHARK_PATH if (TSHARK_PATH and os.path.isfile(TSHARK_PATH)) else "tshark"
+
+    # 找一个真实文件作为校验输入（tshark 需要 -r 参数）
+    sample = None
+    for ext in ("*.pcapng", "*.pcap", "*.cap"):
+        files = sorted(CAPTURES_DIR.glob(ext))
+        if files:
+            sample = str(files[0])
+            break
+    if not sample:
+        # 没有可用文件，无法校验，假定合法
+        return {"valid": True, "message": ""}
+
+    try:
+        proc = subprocess.run(
+            [tshark, "-Y", expr, "-r", sample, "-c", "1"],
+            capture_output=True, text=True, timeout=10,
+            encoding="utf-8", errors="replace",
+        )
+        stderr = proc.stderr.strip()
+        # 返回码 4 = 过滤器语法错误；含 "Unexpected" / "syntax" 等
+        if proc.returncode == 4 or "unexpected" in stderr.lower() \
+                or "syntax error" in stderr.lower() or "unable to parse" in stderr.lower():
+            msg = stderr.splitlines()[0] if stderr else "过滤器语法错误"
+            # 去掉 "tshark: " 前缀更友好
+            msg = msg.replace("tshark: ", "")
+            return {"valid": False, "message": msg}
+        return {"valid": True, "message": ""}
+    except subprocess.TimeoutExpired:
+        return {"valid": True, "message": "校验超时"}
+    except Exception as e:
+        return {"valid": True, "message": f"校验不可用: {e}"}

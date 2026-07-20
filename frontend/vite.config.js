@@ -9,6 +9,7 @@ export default defineConfig({
       '/api': {
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
+        ws: true, // 关键：代理 WebSocket（实时抓包推送）
       },
     },
   },

@@ -48,7 +48,7 @@ function loadWidths() {
 export default function PacketTable({
   packets, loading, error, selected, onSelect,
   checked, onCheck, page, pageSize, total, onPageChange, pcapFile,
-  onApplyFilterExpr, onFollowStream,
+  liveMode = false, onApplyFilterExpr, onFollowStream,
 }) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const { menu, openMenu } = useContextMenu()
@@ -117,6 +117,14 @@ export default function PacketTable({
       ?.scrollIntoView({ block: 'nearest' })
   }, [selected])
 
+  // 实时模式：新包到达时自动滚动到顶部（最新在上）
+  const tableBodyRef = useRef(null)
+  useEffect(() => {
+    if (!liveMode) return
+    const el = wrapRef.current?.querySelector('.packet-table')
+    if (el) el.scrollTop = 0
+  }, [packets.length, liveMode])
+
   // ---- 行右键菜单 ----
   const onRowContextMenu = useCallback((e, p) => {
     onSelect(p)
@@ -163,7 +171,7 @@ export default function PacketTable({
     openMenu(e, items)
   }, [onSelect, onApplyFilterExpr, onFollowStream, openMenu])
 
-  if (!pcapFile) {
+  if (!pcapFile && !liveMode) {
     return (
       <div className="table-empty">
         <div className="empty-icon">🦈</div>
@@ -228,24 +236,26 @@ export default function PacketTable({
           })}
           {!loading && packets.length === 0 && (
             <tr><td colSpan="8" className="table-empty-row">
-              {error ? `加载失败：${error}` : '没有匹配的数据包'}
+              {error ? `加载失败：${error}` : liveMode ? '等待数据包…（若无流量请检查网卡选择和权限）' : '没有匹配的数据包'}
             </td></tr>
           )}
         </tbody>
       </table>
 
-      {loading && <div className="table-loading">加载中…</div>}
+      {loading && !liveMode && <div className="table-loading">加载中…</div>}
 
-      <div className="pagination">
-        <button className="btn btn-sm" disabled={page === 0} onClick={() => onPageChange(0)}>«</button>
-        <button className="btn btn-sm" disabled={page === 0} onClick={() => onPageChange(page - 1)}>‹ 上一页</button>
-        <span className="page-info">
-          第 {page + 1} / {totalPages} 页 · 共 {total} 个包
-          <span className="kbd-hint">↑↓ 切换包 · 右键更多操作</span>
-        </span>
-        <button className="btn btn-sm" disabled={page >= totalPages - 1} onClick={() => onPageChange(page + 1)}>下一页 ›</button>
-        <button className="btn btn-sm" disabled={page >= totalPages - 1} onClick={() => onPageChange(totalPages - 1)}>»</button>
-      </div>
+      {!liveMode && (
+        <div className="pagination">
+          <button className="btn btn-sm" disabled={page === 0} onClick={() => onPageChange(0)}>«</button>
+          <button className="btn btn-sm" disabled={page === 0} onClick={() => onPageChange(page - 1)}>‹ 上一页</button>
+          <span className="page-info">
+            第 {page + 1} / {totalPages} 页 · 共 {total} 个包
+            <span className="kbd-hint">↑↓ 切换包 · 右键更多操作</span>
+          </span>
+          <button className="btn btn-sm" disabled={page >= totalPages - 1} onClick={() => onPageChange(page + 1)}>下一页 ›</button>
+          <button className="btn btn-sm" disabled={page >= totalPages - 1} onClick={() => onPageChange(totalPages - 1)}>»</button>
+        </div>
+      )}
 
       {menu}
     </div>

@@ -35,7 +35,7 @@ function guessFilterExpr(node, ancestors) {
 }
 
 // AI 字段解释气泡（Popover）
-function ExplainPopover({ anchor, content, loading, onClose }) {
+function ExplainPopover({ anchor, content, loading, fromCache, onClose }) {
   const ref = useRef(null)
   useEffect(() => {
     const onDown = (e) => {
@@ -58,7 +58,7 @@ function ExplainPopover({ anchor, content, loading, onClose }) {
   return (
     <div ref={ref} className="explain-popover" style={{ left: x, top: y, width: W }}>
       <div className="explain-header">
-        <span>🤖 AI 字段解释</span>
+        <span>🤖 AI 字段解释{fromCache && <span className="explain-cache-tag">缓存</span>}</span>
         <button className="explain-close" onClick={onClose}>✕</button>
       </div>
       <div className="explain-body markdown-body">
@@ -142,23 +142,47 @@ function TreeNode({ node, depth = 0, ancestors = [], onApplyFilterExpr, onExplai
   )
 }
 
+// AI 字段解释缓存（localStorage，避免重复调 GLM）
+const EXPLAIN_KEY = 'wsa.explainCache.v1'
+function getExplainCache() {
+  try { return JSON.parse(localStorage.getItem(EXPLAIN_KEY) || '{}') } catch { return {} }
+}
+function setExplainCache(key, value) {
+  const c = getExplainCache()
+  c[key] = value
+  // 限制缓存条数，防止无限膨胀
+  const keys = Object.keys(c)
+  if (keys.length > 200) delete c[keys[0]]
+  localStorage.setItem(EXPLAIN_KEY, JSON.stringify(c))
+}
+
 // 数据包详情面板：协议树 + Hex 视图 + 原始文本
 export default function PacketDetail({ detail, loading, selected, onApplyFilterExpr }) {
   const [tab, setTab] = useState('tree')
-  const [explain, setExplain] = useState(null) // {anchor, content, loading}
+  const [explain, setExplain] = useState(null) // {anchor, content, loading, fromCache}
 
   const handleExplain = useCallback(async (e, node, path) => {
     const anchor = { x: e.clientX + 8, y: e.clientY + 8 }
-    setExplain({ anchor, content: '', loading: true })
+    const layer = path[0]?.name || ''
+    const fieldPath = path.map((n) => n.name).join(' > ')
+    const cacheKey = `${layer}|${node.name}|${node.value || ''}`
+
+    // 命中缓存：直接展示，不调 LLM
+    const cached = getExplainCache()[cacheKey]
+    if (cached) {
+      setExplain({ anchor, content: cached, loading: false, fromCache: true })
+      return
+    }
+
+    setExplain({ anchor, content: '', loading: true, fromCache: false })
     try {
-      const layer = path[0]?.name || ''
-      const fieldPath = path.map((n) => n.name).join(' > ')
       const r = await api.explainField({
         layer,
         field_path: fieldPath,
         field_name: node.name,
         field_value: node.value || '',
       })
+      setExplainCache(cacheKey, r.explanation)
       setExplain((prev) => prev && { ...prev, content: r.explanation, loading: false })
     } catch (err) {
       setExplain((prev) => prev && { ...prev, content: `解释失败：${err.message}`, loading: false })
@@ -246,6 +270,7 @@ export default function PacketDetail({ detail, loading, selected, onApplyFilterE
           anchor={explain.anchor}
           content={explain.content}
           loading={explain.loading}
+          fromCache={explain.fromCache}
           onClose={() => setExplain(null)}
         />
       )}

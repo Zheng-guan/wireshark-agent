@@ -25,7 +25,7 @@ from fastapi.responses import FileResponse
 # 确保 backend/ 在 sys.path（支持 `python main.py` 直接运行）
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from api import packets, chat, capture          # noqa: E402
+from api import packets, chat, capture, live          # noqa: E402
 from config.settings import get_settings_summary  # noqa: E402
 from core.pyshark_analyzer import get_tshark_version  # noqa: E402
 
@@ -54,6 +54,7 @@ app.add_middleware(
 app.include_router(packets.router)
 app.include_router(chat.router)
 app.include_router(capture.router)
+app.include_router(live.router)
 
 
 @app.get("/api/health")

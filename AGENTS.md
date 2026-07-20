@@ -43,12 +43,14 @@
 backend/                        # FastAPI 后端
 ├── main.py                     # 应用入口（CORS、路由、/api/health、前端静态托管）
 ├── api/
-│   ├── packets.py              # /api/packets/* 列表/计数/详情/统计/协议分布/追踪流(stream)
+│   ├── packets.py              # /api/packets/* 列表/计数/详情/统计/协议分布/追踪流(stream)/过滤器校验
 │   ├── chat.py                 # /api/chat/* 语义过滤/AI 总结/报告导出/字段解释/流诊断
-│   └── capture.py              # /api/capture/* 网卡(含流量)/异步抓包 + /api/files/*(含下载)
+│   ├── capture.py              # /api/capture/* 网卡(含流量)/异步抓包 + /api/files/*(下载/导出对象)
+│   └── live.py                 # /api/live/capture WebSocket 实时抓包推送
 ├── core/
 │   ├── packet_service.py       # 分页列表(带缓存) + 协议树 + Hex 转储 + 时间格式(relative/absolute/delta)
-│   ├── stream_service.py       # 追踪 TCP/UDP 流（tshark -z follow）+ 过滤导出 pcap
+│   ├── stream_service.py       # 追踪 TCP/UDP 流（tshark -z follow）+ 过滤导出 pcap + 导出对象
+│   ├── live_capture_service.py # 实时抓包（单进程 tshark -l 行缓冲，WebSocket 推送）
 │   ├── llm_service.py          # NL→过滤表达式 + 选中包总结 + 对话 + 字段解释 + 流诊断
 │   ├── nic_monitor.py          # 网卡实时流量（psutil）
 │   ├── capture_service.py      # 异步抓包任务 + 进度跟踪
@@ -62,14 +64,16 @@ backend/                        # FastAPI 后端
 └── .env                        # 真实配置（含 API Key，.gitignore 排除）
 
 frontend/                       # React + Vite 前端
-├── src/App.jsx                 # 整体布局 + 可拖拽状态 + 总结/统计/追踪流面板
+├── src/App.jsx                 # 整体布局 + 可拖拽状态 + 实时抓包控制（WebSocket + rAF 批量刷入）
 ├── src/api.js                  # API 客户端封装
+├── src/filterFields.js         # 过滤器字段表（~60 个常用字段，自动补全）
 ├── src/components/
-│   ├── Toolbar.jsx             # 工具栏：文件/上传/抓包/下载/时间格式/过滤器(/ 聚焦)/统计
-│   ├── PacketTable.jsx         # 数据包表格（分页/右键菜单/↑↓ 导航/列宽拖拽/协议着色）
-│   ├── PacketDetail.jsx        # 协议树(右键过滤+AI 字段解释) + Hex + 原始详情 Tab
+│   ├── Toolbar.jsx             # 工具栏：文件/上传/抓包(定时+实时Tab)/下载/时间格式/过滤器(补全+校验+历史)
+│   ├── PacketTable.jsx         # 数据包表格（分页/右键菜单/↑↓ 导航/列宽拖拽/实时模式）
+│   ├── PacketDetail.jsx        # 协议树(右键过滤+AI 字段解释+缓存) + Hex + 原始详情 Tab
 │   ├── ContextMenu.jsx         # 通用右键上下文菜单（useContextMenu hook）
 │   ├── StreamModal.jsx         # 追踪流弹窗（双向分色 + AI 会话诊断）
+│   ├── ExportObjectsModal.jsx  # 导出对象面板（HTTP 文件提取）
 │   ├── ChatPanel.jsx           # AI 控制台（语义过滤/对话）
 │   ├── SummaryPanel.jsx        # AI 总结独立面板（Markdown + 导出）
 │   ├── StatsModal.jsx          # 协议分布图表弹窗
@@ -105,11 +109,18 @@ cd frontend && npm run dev            # http://localhost:5173
 - 新增后端路由：在 `backend/api/` 建文件并在 `main.py` 注册。
 - 新增依赖：后端加到 `backend/requirements.txt`，前端加到 `frontend/package.json`。
 - 前端改端口或后端改端口，需同步 `frontend/vite.config.js` 的 proxy 与 `backend/main.py` 的 CORS。
-- 抓包需**管理员权限**，否则可能无法访问网卡。
+- **`vite.config.js` 的 `/api` proxy 必须保留 `ws: true`**，否则实时抓包的 WebSocket
+  （`/api/live/capture`）在 `npm run dev` 模式下无法握手（单进程模式不受影响）。
+- **实时抓包必须用「单进程 tshark」方案**（`live_capture_service.py`：
+  `tshark -i <网卡> -l -T fields ... -w <文件>`，一个进程既实时输出又落盘）。
+  不要用「dumpcap 写文件 + tshark 读同一文件」的双进程方案——tshark 读到 EOF 后
+  不会跟随文件增长，会导致 0 包。
+- 抓包需**管理员权限**，否则可能无法访问网卡。实时抓包要选有流量的网卡。
 - API Key 已在对话中暴露过，建议提醒用户到智谱平台重置。
 
 ## 已知限制
 
 - 分页读取是「顺序扫描跳过 offset」，超大 pcap 翻页会有重复扫描开销（教学/中小规模可接受）。
 - GLM-4.7 工具调用稳定性一般；Web 版改用「直接 Prompt + JSON 解析」做语义过滤，更可控。
+- 实时抓包表格最多保留 2000 行（防内存膨胀），完整数据在停止后加载生成的 pcapng 文件查看。
 - 无认证机制，仅适合本地单用户使用。
